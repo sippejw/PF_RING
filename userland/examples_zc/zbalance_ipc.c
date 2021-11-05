@@ -1272,8 +1272,8 @@ int main(int argc, char* argv[]) {
         num_consumer_queues_limit = 64; /* egress mask is 64 bit */
         break;
       case 8:
-	num_consumer_queues_limit = 64; /* egress mask is 64 bit */
-	break;
+        num_consumer_queues_limit = 64; /* egress mask is 64 bit */
+        break;
       default:
         printHelp();
         break;
@@ -1282,6 +1282,9 @@ int main(int argc, char* argv[]) {
   switch (hash_mode) {
     case 1: 
     case 3:
+      num_consumer_queues_limit = 64; /* egress mask is 64 bit */
+      break;
+    case 8:
       num_consumer_queues_limit = 64; /* egress mask is 64 bit */
       break;
     default:
@@ -1619,6 +1622,9 @@ int main(int argc, char* argv[]) {
       case 7: 
         distr_func =  eth_distribution_func;
       break;
+      case 8:
+        if (strcmp(device, "sysdig") == 0) func = sysdig_distribution_func; else if (time_pulse) func = erspan_distribution_func; /* else built-in IP-based */
+      break;
     }
 
     zw = pfring_zc_run_balancer_v2(
@@ -1665,6 +1671,9 @@ int main(int argc, char* argv[]) {
       break;
       case 6: 
         distr_func = fo_multiapp_direct_distribution_func;
+      break;
+      case 8:
+        func = fo_multiapp_erspan_distribution_func;
       break;
     }
 
