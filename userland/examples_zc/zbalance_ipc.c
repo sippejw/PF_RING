@@ -616,7 +616,8 @@ void printHelp(void) {
          "                 4 - GTP hash (Inner IP/Port or Seq-Num or Outer IP/Port)\n"
          "                 5 - GRE hash (Inner or Outer IP)\n"
          "                 6 - Interface X to queue X\n"
-         "                 7 - Ethernet type (check 0x8585 type and select the queue, other to queue 0)\n");
+         "                 7 - Ethernet type (check 0x8585 type and select the queue, other to queue 0)\n"
+  	 "		   8 - ERSPAN (Inner IP)\n");
   printf("-r <queue>:<dev> Replace egress queue <queue> with device <dev> (multiple -r can be specified)\n");
   printf("-M <vlans>       Comma-separated list of VLANs to map VLAN to egress queues (-m 7 only)\n");
   printf("-S <core id>     Enable Time Pulse thread and bind it to a core\n");
@@ -754,6 +755,41 @@ int64_t ip_distribution_func(pfring_zc_pkt_buff *pkt_handle, pfring_zc_queue *in
 
 /* *************************************** */
 
+int npkts = 0;
+int64_t erspan_hack_ip_hash(pfring_zc_pkt_buff *pkt_handle, pfring_zc_queue *in_queue)
+{
+  // Skip the first 0x2a bytes, which is the erspan header. There lies an etherheader; parse that
+  u_char *pkt = pfring_zc_pkt_buff_data(pkt_handle, in_queue);
+  u_char *ether = &pkt[0x2a];
+  uint16_t ethertype = (ether[12] << 8) | ether[13];
+  if (ethertype == 0x0800) {
+    // IPv4
+    if (pkt_handle->len < (sizeof(struct ether_header)+sizeof(struct iphdr))) {
+      return 0;
+    }
+
+    struct iphdr *ip = (struct iphdr*)&ether[sizeof(struct ether_header)];
+    return ntohl(ip->saddr) + ntohl(ip->daddr);
+  } else if (ethertype == 0x86dd) {
+    // IPv6
+    // TODO
+  }
+  return 0;
+}
+
+int64_t erspan_distribution_func(pfring_zc_pkt_buff *pkt_handle, pfring_zc_queue *in_queue, void *user) {
+  long num_out_queues = (long) user;
+#ifdef HAVE_PACKET_FILTER
+  if (!packet_filter(pkt_handle, in_queue))
+    return -1;
+#endif
+  if (time_pulse) SET_TS_FROM_PULSE(pkt_handle, *pulse_timestamp_ns);
+
+  return erspan_hack_ip_hash(pkt_handle, in_queue) % num_out_queues;
+}
+
+/* *************************************** */
+
 int64_t gtp_distribution_func(pfring_zc_pkt_buff *pkt_handle, pfring_zc_queue *in_queue, void *user) {
   long num_out_queues = (long) user;
   u_int32_t hash, flags;
@@ -876,6 +912,30 @@ int64_t fo_multiapp_ip_distribution_func(pfring_zc_pkt_buff *pkt_handle, pfring_
   if (time_pulse) SET_TS_FROM_PULSE(pkt_handle, *pulse_timestamp_ns);
 
   hash = pfring_zc_builtin_ip_hash(pkt_handle, in_queue);
+
+  for (i = 0; i < num_apps; i++) {
+    app_instance = hash % instances_per_app[i];
+    consumers_mask |= ((int64_t) 1 << (offset + app_instance));
+    offset += instances_per_app[i];
+  }
+
+  return consumers_mask;
+}
+
+/* *************************************** */
+
+int64_t fo_multiapp_erspan_distribution_func(pfring_zc_pkt_buff *pkt_handle, pfring_zc_queue *in_queue, void *user) {
+  int32_t i, offset = 0, app_instance, hash;
+  int64_t consumers_mask = 0;
+
+#ifdef HAVE_PACKET_FILTER
+  if (!packet_filter(pkt_handle, in_queue))
+    return 0x0;
+#endif
+
+  if (time_pulse) SET_TS_FROM_PULSE(pkt_handle, *pulse_timestamp_ns);
+
+  hash = erspan_hack_ip_hash(pkt_handle, in_queue);
 
   for (i = 0; i < num_apps; i++) {
     app_instance = hash % instances_per_app[i];
@@ -1211,6 +1271,9 @@ int main(int argc, char* argv[]) {
       case 6:
         num_consumer_queues_limit = 64; /* egress mask is 64 bit */
         break;
+      case 8:
+	num_consumer_queues_limit = 64; /* egress mask is 64 bit */
+	break;
       default:
         printHelp();
         break;
