@@ -35,6 +35,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
+#include <netinet/ip.h>
 #include <sys/inotify.h>
 #include <fcntl.h>
 
@@ -1623,7 +1624,7 @@ int main(int argc, char* argv[]) {
         distr_func =  eth_distribution_func;
       break;
       case 8:
-        if (strcmp(device, "sysdig") == 0) func = sysdig_distribution_func; else if (time_pulse) func = erspan_distribution_func; /* else built-in IP-based */
+        if (strcmp(device, "sysdig") == 0) distr_func = sysdig_distribution_func; else if (time_pulse) distr_func = erspan_distribution_func; /* else built-in IP-based */
       break;
     }
 
@@ -1673,7 +1674,7 @@ int main(int argc, char* argv[]) {
         distr_func = fo_multiapp_direct_distribution_func;
       break;
       case 8:
-        func = fo_multiapp_erspan_distribution_func;
+        distr_func = fo_multiapp_erspan_distribution_func;
       break;
     }
 
